@@ -4,12 +4,20 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const connectDB = async () => {
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+    });
     console.log('MongoDB connected');
+    return mongoose.connection;
   } catch (err) {
     console.error(err.message);
-    process.exit(1);
+    throw err;
   }
 };
 
