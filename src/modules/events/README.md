@@ -1,0 +1,1 @@
+# Events module\n\n- routes: `/events`\n- controller/service/repo placeholders.\n

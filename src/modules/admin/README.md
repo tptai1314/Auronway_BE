@@ -1,0 +1,1 @@
+# Admin module\n\n- routes: `/admin`\n- controller/service/repo placeholders.\n

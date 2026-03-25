@@ -1,0 +1,1 @@
+# Skills module\n\n- routes: `/skills`\n- controller/service/repo placeholders.\n

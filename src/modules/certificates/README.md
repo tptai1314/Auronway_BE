@@ -1,0 +1,1 @@
+# Certificates module\n\n- routes: `/certificates`\n- controller/service/repo placeholders.\n

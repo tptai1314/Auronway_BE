@@ -1,0 +1,1 @@
+# Notifications module\n\n- routes: `/notifications`\n- controller/service/repo placeholders.\n

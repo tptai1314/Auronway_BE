@@ -1,0 +1,1 @@
+# Tenants module\n\n- routes: `/tenants`\n- controller/service/repo placeholders.\n

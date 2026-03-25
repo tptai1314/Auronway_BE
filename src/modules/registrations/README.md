@@ -1,0 +1,1 @@
+# Registrations module\n\n- routes: `/registrations`\n- controller/service/repo placeholders.\n

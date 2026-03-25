@@ -1,0 +1,1 @@
+# Auth module\n\n- routes: `/auth`\n- controller/service/repo placeholders.\n

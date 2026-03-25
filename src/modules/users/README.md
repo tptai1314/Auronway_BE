@@ -1,0 +1,1 @@
+# Users module\n\n- routes: `/users`\n- controller/service/repo placeholders.\n
