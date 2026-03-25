@@ -7,7 +7,7 @@ const { errorMiddleware } = require("./src/shared/http/handle-error");
 
 const app = express();
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:4000'],
+  origin: ['http://localhost:3000', 'http://localhost:4000', "https://auronway.vercel.app"],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
