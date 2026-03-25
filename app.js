@@ -6,11 +6,27 @@ const passport = require("./src/config/passport");
 const { errorMiddleware } = require("./src/shared/http/handle-error");
 
 const app = express();
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:4000",
+  "https://auronway.vercel.app",
+];
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:4000', "https://auronway.vercel.app"],
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+
+    const isVercelPreview = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
+    if (allowedOrigins.includes(origin) || isVercelPreview) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Not allowed by CORS"));
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204,
 }));
 app.use(express.json({ limit: "5mb" }));
 app.use(cookieParser());

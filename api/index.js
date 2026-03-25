@@ -1,6 +1,26 @@
 const app = require("../app");
 const connectDB = require("../src/shared/db");
 
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:4000",
+  "https://auronway.vercel.app",
+];
+
+const setCorsHeaders = (req, res) => {
+  const origin = req.headers.origin;
+  const isVercelPreview = typeof origin === "string" && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
+  const isAllowed = ALLOWED_ORIGINS.includes(origin) || isVercelPreview;
+
+  if (isAllowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  }
+};
+
 const connectWithTimeout = async (ms = 8000) => {
   await Promise.race([
     connectDB(),
@@ -14,6 +34,10 @@ module.exports = async (req, res) => {
   try {
     const requestPath = req.url || "";
 
+    if (req.method === "OPTIONS") {
+      return app(req, res);
+    }
+
     if (requestPath === "/health") {
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
@@ -24,6 +48,7 @@ module.exports = async (req, res) => {
     return app(req, res);
   } catch (error) {
     console.error("[vercel] Failed to handle request:", error);
+    setCorsHeaders(req, res);
     res.statusCode = error.message === "DB connection timeout" ? 503 : 500;
     res.setHeader("Content-Type", "application/json");
     return res.end(
