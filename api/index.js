@@ -17,8 +17,15 @@ const setCorsHeaders = (req, res) => {
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+
+    const requestedHeaders = req.headers["access-control-request-headers"];
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      requestedHeaders || "Content-Type,Authorization"
+    );
   }
+
+  return isAllowed;
 };
 
 const connectWithTimeout = async (ms = 8000) => {
@@ -33,9 +40,17 @@ const connectWithTimeout = async (ms = 8000) => {
 module.exports = async (req, res) => {
   try {
     const requestPath = req.url || "";
+    const isAllowedOrigin = setCorsHeaders(req, res);
 
     if (req.method === "OPTIONS") {
-      return app(req, res);
+      if (!isAllowedOrigin && req.headers.origin) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        return res.end(JSON.stringify({ ok: false, message: "Origin not allowed" }));
+      }
+
+      res.statusCode = 204;
+      return res.end();
     }
 
     if (requestPath === "/health") {
