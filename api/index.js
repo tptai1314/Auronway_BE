@@ -1,8 +1,5 @@
-const serverless = require("serverless-http");
 const app = require("../app");
 const connectDB = require("../src/shared/db");
-
-let handler;
 
 const connectWithTimeout = async (ms = 8000) => {
   await Promise.race([
@@ -24,12 +21,7 @@ module.exports = async (req, res) => {
     }
 
     await connectWithTimeout(8000);
-
-    if (!handler) {
-      handler = serverless(app);
-    }
-
-    return handler(req, res);
+    return app(req, res);
   } catch (error) {
     console.error("[vercel] Failed to handle request:", error);
     res.statusCode = error.message === "DB connection timeout" ? 503 : 500;
