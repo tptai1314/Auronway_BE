@@ -10,6 +10,14 @@
   },
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "/api/[...all].js"
+    },
+    {
+      "source": "/auth/(.*)",
+      "destination": "/api/[...all].js"
+    },
+    {
       "source": "/health",
       "destination": "/api/index.js"
     }

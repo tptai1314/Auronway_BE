@@ -36,9 +36,11 @@ app.use(passport.initialize());
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 const skillRoutes = require("./src/modules/skills/skills.routes");
+const authRoutes = require("./src/modules/auth/auth.routes");
 
 // Mount routers 
-app.use("/api/auth", require("./src/modules/auth/auth.routes"));
+app.use("/api/auth", authRoutes);
+app.use("/auth", authRoutes);
 app.use("/api/tenants", require("./src/modules/tenants/tenants.routes"));
 app.use("/api/organizers", require("./src/modules/organizers/organizers.routes"));
 app.use("/api/events", require("./src/modules/events/events.routes"));
