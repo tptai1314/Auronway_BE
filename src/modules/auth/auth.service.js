@@ -5,6 +5,7 @@ const authRepo = require('./auth.repo');
 const User = require('../../model/user.model');
 const Tenant = require('../../model/tenant.model');
 const InviteCode = require('../../model/inviteCode.model');
+const Avatar = require('../../model/avatar.model');
 const { sendEmail } = require('../../utils/emailService');
 const { generateOTP } = require('../../utils/helpers');
 const dailyService = require('../daily/daily.service');
@@ -12,11 +13,34 @@ const dailyService = require('../daily/daily.service');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 class AuthService {
+  normalizeEmail(email) {
+    return (email || '').trim().toLowerCase();
+  }
+
+  async getDefaultAvatarUrl() {
+    const defaultAvatar = await Avatar.findOne({ is_active: true, is_default: true })
+      .sort({ order: 1, createdAt: -1 })
+      .select('image_url')
+      .lean();
+
+    if (defaultAvatar?.image_url) {
+      return defaultAvatar.image_url;
+    }
+
+    const fallbackAvatar = await Avatar.findOne({ is_active: true })
+      .sort({ order: 1, createdAt: -1 })
+      .select('image_url')
+      .lean();
+
+    return fallbackAvatar?.image_url || null;
+  }
+
   async register(userData) {
     const { email, password, profile, invite_code } = userData;
+    const normalizedEmail = this.normalizeEmail(email);
 
     // Check if user already exists
-    const existingUser = await authRepo.findUserByEmail(email);
+    const existingUser = await authRepo.findUserByEmail(normalizedEmail);
     if (existingUser) {
       throw new Error('Email đã được sử dụng');
     }
@@ -40,7 +64,7 @@ class AuthService {
     // Tạo OTP và lưu vào DB (chưa tạo user)
     const otpCode = generateOTP();
     await authRepo.createOTPTemp({
-      email,
+      email: normalizedEmail,
       code: otpCode,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       attempts: 0,
@@ -53,7 +77,7 @@ class AuthService {
 
     // Gửi email OTP
     await sendEmail({
-      to: email,
+      to: normalizedEmail,
       subject: 'Xác thực email - SkillUp Platform',
       template: 'email-verification',
       data: {
@@ -66,7 +90,8 @@ class AuthService {
   }
 
   async login(email, password) {
-    const user = await authRepo.findUserByEmail(email);
+    const normalizedEmail = this.normalizeEmail(email);
+    const user = await authRepo.findUserByEmail(normalizedEmail);
     if (!user) {
       throw new Error('Email hoặc mật khẩu không đúng');
     }
@@ -125,13 +150,14 @@ class AuthService {
       }
 
       // Create new user
+      const defaultAvatarUrl = await this.getDefaultAvatarUrl();
       user = await authRepo.createUser({
         email,
         google_id: payload.sub,
         tenant_id: tenantId,
         profile: {
           full_name: name,
-          avatar_url: picture,
+          avatar_url: picture || defaultAvatarUrl,
           student_id: null,
           major: null
         },
@@ -165,8 +191,9 @@ class AuthService {
   }
 
   async verifyEmail({ email, code, password, profile, invite_code }) {
+    const normalizedEmail = this.normalizeEmail(email);
     // Tìm OTP tạm
-    const otpTemp = await authRepo.findOTPTemp(email, code);
+    const otpTemp = await authRepo.findOTPTemp(normalizedEmail, code);
     if (!otpTemp) {
       throw new Error('Mã xác thực không hợp lệ hoặc đã hết hạn');
     }
@@ -175,11 +202,15 @@ class AuthService {
     }
     // Nếu đúng OTP, tạo user
     const hashedPassword = await bcrypt.hash(otpTemp.password, 12);
+    const defaultAvatarUrl = await this.getDefaultAvatarUrl();
     const user = await authRepo.createUser({
-      email,
+      email: normalizedEmail,
       password_hash: hashedPassword,
       tenant_id: otpTemp.tenantId,
-      profile: otpTemp.profile,
+      profile: {
+        ...(otpTemp.profile || {}),
+        avatar_url: otpTemp.profile?.avatar_url || defaultAvatarUrl
+      },
       affiliations: otpTemp.tenantId ? [{
         tenant_id: otpTemp.tenantId,
         role: 'STUDENT',
@@ -191,14 +222,15 @@ class AuthService {
       is_active: true
     });
     // Xóa OTP tạm
-    await authRepo.deleteOTPTemp(email, code);
+    await authRepo.deleteOTPTemp(normalizedEmail, code);
     // Tạo token
     const token = this.generateToken(user);
     return { user: this.sanitizeUser(user), token };
   }
 
   async resendVerification(email) {
-    const user = await authRepo.findUserByEmail(email);
+    const normalizedEmail = this.normalizeEmail(email);
+    const user = await authRepo.findUserByEmail(normalizedEmail);
     if (!user) {
       throw new Error('Email không tồn tại');
     }
@@ -208,11 +240,11 @@ class AuthService {
     }
 
     // Generate new OTP
-    const otp = await authRepo.createOTP(user._id, email, 'email_verification');
+    const otp = await authRepo.createOTP(user._id, normalizedEmail, 'email_verification');
 
     // Send verification email
     await sendEmail({
-      to: email,
+      to: normalizedEmail,
       subject: 'Xác thực email - SkillUp Platform',
       template: 'email-verification',
       data: {
@@ -225,18 +257,19 @@ class AuthService {
   }
 
   async forgotPassword(email) {
-    const user = await authRepo.findUserByEmail(email);
+    const normalizedEmail = this.normalizeEmail(email);
+    const user = await authRepo.findUserByEmail(normalizedEmail);
     if (!user) {
       // Don't reveal if email exists
       return true;
     }
 
     // Generate password reset OTP
-    const otp = await authRepo.createOTP(user._id, email, 'password_reset');
+    const otp = await authRepo.createOTP(user._id, normalizedEmail, 'password_reset');
 
     // Send reset email
     await sendEmail({
-      to: email,
+      to: normalizedEmail,
       subject: 'Reset mật khẩu - SkillUp Platform',
       template: 'password-reset',
       data: {
@@ -249,7 +282,8 @@ class AuthService {
   }
 
   async resetPassword(email, code, newPassword) {
-    const otp = await authRepo.findValidOTP(email, code, 'password_reset');
+    const normalizedEmail = this.normalizeEmail(email);
+    const otp = await authRepo.findValidOTP(normalizedEmail, code, 'password_reset');
     if (!otp) {
       throw new Error('Mã reset không hợp lệ hoặc đã hết hạn');
     }

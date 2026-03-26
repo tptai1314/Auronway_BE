@@ -5,11 +5,23 @@ const InviteCode = require('../../model/inviteCode.model');
 const OTP = require('../../model/otp.model');
 
 class AuthRepo {
+    normalizeEmail(email) {
+      return (email || '').trim().toLowerCase();
+    }
+
+    escapeRegex(value) {
+      return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     // OTP Temp operations (for registration)
     async createOTPTemp(data) {
+      const normalizedEmail = this.normalizeEmail(data.email);
       // Xóa OTP cũ cùng email
-      await OTPTemp.deleteMany({ email: data.email });
-      const otpTemp = new OTPTemp(data);
+      await OTPTemp.deleteMany({ email: normalizedEmail });
+      const otpTemp = new OTPTemp({
+        ...data,
+        email: normalizedEmail
+      });
       return otpTemp.save();
     }
 
@@ -22,7 +34,9 @@ class AuthRepo {
     }
   // User operations
   async findUserByEmail(email) {
-    return User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = this.normalizeEmail(email);
+    const escapedEmail = this.escapeRegex(normalizedEmail);
+    return User.findOne({ email: { $regex: `^${escapedEmail}$`, $options: 'i' } });
   }
 
   async findUserById(userId) {
@@ -30,7 +44,10 @@ class AuthRepo {
   }
 
   async createUser(userData) {
-    const user = new User(userData);
+    const user = new User({
+      ...userData,
+      email: this.normalizeEmail(userData.email)
+    });
     return user.save();
   }
 

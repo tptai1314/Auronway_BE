@@ -12,6 +12,57 @@ function throwError(message, status = 400) {
   throw err;
 }
 
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+function normalizeOptionalString(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function normalizeDateOfBirth(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throwError("Ngày sinh không hợp lệ", 400);
+  }
+
+  return date;
+}
+
+function sanitizeProfile(profile = {}) {
+  if (!profile || typeof profile !== "object") return {};
+
+  return {
+    ...profile,
+    full_name: normalizeOptionalString(profile.full_name),
+    avatar_url: normalizeOptionalString(profile.avatar_url),
+    student_id: normalizeOptionalString(profile.student_id),
+    major: normalizeOptionalString(profile.major),
+    bio: normalizeOptionalString(profile.bio),
+    phone: normalizeOptionalString(profile.phone),
+    date_of_birth: normalizeDateOfBirth(profile.date_of_birth),
+  };
+}
+
+function mapUserPersistenceError(error) {
+  if (!error) return;
+
+  if (error.code === 11000 && error.keyPattern?.email) {
+    throwError("Email đã được sử dụng", 400);
+  }
+
+  if (error.name === "ValidationError" || error.name === "CastError") {
+    throwError(error.message || "Dữ liệu người dùng không hợp lệ", 400);
+  }
+}
+
 // =====================================
 // USER MANAGEMENT
 // =====================================
@@ -95,8 +146,16 @@ async function getUserById(userId) {
  * Create new user (admin)
  */
 async function createUser(data) {
+  const email = normalizeEmail(data.email);
+  if (!email) {
+    throwError("Email là bắt buộc", 400);
+  }
+  if (!data.password) {
+    throwError("Mật khẩu là bắt buộc", 400);
+  }
+
   // Check if email exists
-  const existingUser = await User.findOne({ email: data.email });
+  const existingUser = await User.findOne({ email });
   if (existingUser) {
     throwError("Email đã được sử dụng", 400);
   }
@@ -107,16 +166,24 @@ async function createUser(data) {
     password_hash = await bcrypt.hash(data.password, 10);
   }
 
+  const profile = sanitizeProfile(data.profile || {});
+
   const user = new User({
-    email: data.email,
+    email,
     password_hash,
-    profile: data.profile || {},
-    roles: data.roles || ["PUBLIC_USER"],
+    profile,
+    roles: ["PUBLIC_USER"],
+    affiliations: [{ role: "STUDENT" }],
     is_active: data.is_active !== undefined ? data.is_active : true,
     auth_provider: "local",
   });
 
-  await user.save();
+  try {
+    await user.save();
+  } catch (error) {
+    mapUserPersistenceError(error);
+    throw error;
+  }
 
   // Return without sensitive fields
   const result = user.toObject();
@@ -136,12 +203,18 @@ async function updateUser(userId, data) {
   }
 
   // Check email uniqueness if changing email
-  if (data.email && data.email !== user.email) {
-    const existingUser = await User.findOne({ email: data.email });
-    if (existingUser) {
-      throwError("Email đã được sử dụng", 400);
+  if (data.email) {
+    const normalizedEmail = normalizeEmail(data.email);
+    if (!normalizedEmail) {
+      throwError("Email không hợp lệ", 400);
     }
-    user.email = data.email;
+    if (normalizedEmail !== user.email) {
+      const existingUser = await User.findOne({ email: normalizedEmail });
+      if (existingUser) {
+        throwError("Email đã được sử dụng", 400);
+      }
+      user.email = normalizedEmail;
+    }
   }
 
   // Update password if provided
@@ -151,12 +224,8 @@ async function updateUser(userId, data) {
 
   // Update profile
   if (data.profile) {
-    user.profile = { ...user.profile, ...data.profile };
-  }
-
-  // Update roles
-  if (data.roles) {
-    user.roles = data.roles;
+    const currentProfile = user.profile?.toObject ? user.profile.toObject() : (user.profile || {});
+    user.profile = sanitizeProfile({ ...currentProfile, ...data.profile });
   }
 
   // Update status
@@ -164,7 +233,12 @@ async function updateUser(userId, data) {
     user.is_active = data.is_active;
   }
 
-  await user.save();
+  try {
+    await user.save();
+  } catch (error) {
+    mapUserPersistenceError(error);
+    throw error;
+  }
 
   // Return without sensitive fields
   const result = user.toObject();
@@ -202,11 +276,9 @@ async function deleteUser(userId) {
     throwError("Người dùng không tồn tại", 404);
   }
 
-  // Soft delete - just deactivate
-  user.is_active = false;
-  await user.save();
+  await User.findByIdAndDelete(userId);
 
-  return { message: "Đã khóa người dùng" };
+  return { message: "Đã xóa người dùng" };
 }
 
 // =====================================
@@ -343,6 +415,8 @@ async function getAllSkills() {
  * Get all avatars with pagination and filters
  */
 async function getAvatars(query) {
+  await resequenceAvatars();
+
   const page = Math.max(1, Number(query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
   const skip = (page - 1) * limit;
@@ -383,6 +457,60 @@ async function getAvatars(query) {
   };
 }
 
+async function resequenceAvatars() {
+  const avatars = await Avatar.find({})
+    .sort({ order: 1, createdAt: 1, _id: 1 })
+    .select("_id order")
+    .lean();
+
+  if (!avatars.length) return;
+
+  const ops = [];
+  avatars.forEach((avatar, index) => {
+    const nextOrder = index + 1;
+    if (avatar.order !== nextOrder) {
+      ops.push({
+        updateOne: {
+          filter: { _id: avatar._id },
+          update: { $set: { order: nextOrder } },
+        },
+      });
+    }
+  });
+
+  if (ops.length) {
+    await Avatar.bulkWrite(ops);
+  }
+}
+
+async function moveAvatarToOrder(avatarId, rawOrder) {
+  const avatars = await Avatar.find({})
+    .sort({ order: 1, createdAt: 1, _id: 1 })
+    .select("_id order")
+    .lean();
+
+  const currentIndex = avatars.findIndex((a) => String(a._id) === String(avatarId));
+  if (currentIndex < 0) {
+    throwError("Avatar không tồn tại", 404);
+  }
+
+  const [movingItem] = avatars.splice(currentIndex, 1);
+  const requested = Math.max(1, Math.floor(Number(rawOrder) || 1));
+  const targetIndex = Math.min(requested - 1, avatars.length);
+  avatars.splice(targetIndex, 0, movingItem);
+
+  const ops = avatars.map((avatar, index) => ({
+    updateOne: {
+      filter: { _id: avatar._id },
+      update: { $set: { order: index + 1 } },
+    },
+  }));
+
+  if (ops.length) {
+    await Avatar.bulkWrite(ops);
+  }
+}
+
 /**
  * Create a system avatar
  */
@@ -391,16 +519,26 @@ async function createAvatar(data) {
     throwError("Tên và URL ảnh là bắt buộc", 400);
   }
 
+  const name = String(data.name).trim();
+  const imageUrl = String(data.image_url).trim();
+
+  if (!name || !imageUrl) {
+    throwError("Tên và URL ảnh là bắt buộc", 400);
+  }
+
+  await resequenceAvatars();
+  const total = await Avatar.countDocuments();
+
   if (data.is_default) {
     await Avatar.updateMany({}, { $set: { is_default: false } });
   }
 
   const avatar = await Avatar.create({
-    name: data.name,
-    image_url: data.image_url,
+    name,
+    image_url: imageUrl,
     is_default: Boolean(data.is_default),
     is_active: data.is_active !== undefined ? Boolean(data.is_active) : true,
-    order: Number.isFinite(Number(data.order)) ? Number(data.order) : 0,
+    order: total + 1,
   });
 
   return avatar;
@@ -415,11 +553,8 @@ async function updateAvatar(avatarId, data) {
     throwError("Avatar không tồn tại", 404);
   }
 
-  if (data.name !== undefined) avatar.name = data.name;
-  if (data.image_url !== undefined) avatar.image_url = data.image_url;
-  if (data.order !== undefined && Number.isFinite(Number(data.order))) {
-    avatar.order = Number(data.order);
-  }
+  if (data.name !== undefined) avatar.name = String(data.name || "").trim();
+  if (data.image_url !== undefined) avatar.image_url = String(data.image_url || "").trim();
   if (data.is_active !== undefined) avatar.is_active = Boolean(data.is_active);
 
   if (data.is_default !== undefined) {
@@ -431,7 +566,14 @@ async function updateAvatar(avatarId, data) {
   }
 
   await avatar.save();
-  return avatar;
+
+  if (data.order !== undefined && Number.isFinite(Number(data.order))) {
+    await moveAvatarToOrder(avatarId, Number(data.order));
+  } else {
+    await resequenceAvatars();
+  }
+
+  return Avatar.findById(avatarId).lean();
 }
 
 /**
@@ -444,6 +586,7 @@ async function deleteAvatar(avatarId) {
   }
 
   await Avatar.findByIdAndDelete(avatarId);
+  await resequenceAvatars();
   return { message: "Đã xóa avatar" };
 }
 
