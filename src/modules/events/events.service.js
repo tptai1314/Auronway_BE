@@ -955,7 +955,7 @@ async function checkinByQRCode(user, qrToken, location = null, deviceInfo = null
   const startTime = new Date(event.start_at);
   const endTime = new Date(event.end_at);
   const checkinDeadline = new Date(endTime.getTime() + 2 * 60 * 60 * 1000);
-  const earlyCheckinMinutes = 15;
+  const earlyCheckinMinutes = 1500;
   const checkinOpenTime = new Date(startTime.getTime() - earlyCheckinMinutes * 60 * 1000);
   
   if (now < checkinOpenTime) {
