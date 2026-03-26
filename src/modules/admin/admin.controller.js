@@ -151,6 +151,48 @@ const getAllSkills = asyncHandler(async (req, res) => {
   });
 });
 
+// =====================================
+// AVATARS
+// =====================================
+
+// GET /admin/avatars
+const getAvatars = asyncHandler(async (req, res) => {
+  const avatars = await service.getAvatars(req.query);
+  res.status(200).json({
+    success: true,
+    data: avatars,
+  });
+});
+
+// POST /admin/avatars
+const createAvatar = asyncHandler(async (req, res) => {
+  const avatar = await service.createAvatar(req.body);
+  res.status(201).json({
+    success: true,
+    message: "Tạo avatar thành công",
+    data: avatar,
+  });
+});
+
+// PATCH /admin/avatars/:id
+const updateAvatar = asyncHandler(async (req, res) => {
+  const avatar = await service.updateAvatar(req.params.id, req.body);
+  res.status(200).json({
+    success: true,
+    message: "Cập nhật avatar thành công",
+    data: avatar,
+  });
+});
+
+// DELETE /admin/avatars/:id
+const deleteAvatar = asyncHandler(async (req, res) => {
+  const result = await service.deleteAvatar(req.params.id);
+  res.status(200).json({
+    success: true,
+    message: result.message,
+  });
+});
+
 module.exports = {
   // User management
   getUsers,
@@ -173,4 +215,10 @@ module.exports = {
 
   // Skills
   getAllSkills,
+
+  // Avatar management
+  getAvatars,
+  createAvatar,
+  updateAvatar,
+  deleteAvatar,
 };

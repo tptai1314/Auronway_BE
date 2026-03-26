@@ -2,6 +2,7 @@ const User = require("../../model/user.model");
 const Event = require("../../model/event.model");
 const EventRegistration = require("../../model/eventRegistration.model");
 const Skill = require("../../model/skill.model");
+const Avatar = require("../../model/avatar.model");
 const bcrypt = require("bcryptjs");
 
 // ===== ERROR HELPER =====
@@ -334,6 +335,118 @@ async function getAllSkills() {
   return skills;
 }
 
+// =====================================
+// AVATAR MANAGEMENT
+// =====================================
+
+/**
+ * Get all avatars with pagination and filters
+ */
+async function getAvatars(query) {
+  const page = Math.max(1, Number(query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+  const skip = (page - 1) * limit;
+
+  const filter = {};
+
+  if (query.q) {
+    filter.name = { $regex: query.q, $options: "i" };
+  }
+
+  if (query.status === "active") {
+    filter.is_active = true;
+  } else if (query.status === "inactive") {
+    filter.is_active = false;
+  }
+
+  if (query.is_default === "true") {
+    filter.is_default = true;
+  } else if (query.is_default === "false") {
+    filter.is_default = false;
+  }
+
+  const [items, total] = await Promise.all([
+    Avatar.find(filter)
+      .sort({ order: 1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Avatar.countDocuments(filter),
+  ]);
+
+  return {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    items,
+  };
+}
+
+/**
+ * Create a system avatar
+ */
+async function createAvatar(data) {
+  if (!data.name || !data.image_url) {
+    throwError("Tên và URL ảnh là bắt buộc", 400);
+  }
+
+  if (data.is_default) {
+    await Avatar.updateMany({}, { $set: { is_default: false } });
+  }
+
+  const avatar = await Avatar.create({
+    name: data.name,
+    image_url: data.image_url,
+    is_default: Boolean(data.is_default),
+    is_active: data.is_active !== undefined ? Boolean(data.is_active) : true,
+    order: Number.isFinite(Number(data.order)) ? Number(data.order) : 0,
+  });
+
+  return avatar;
+}
+
+/**
+ * Update avatar by ID
+ */
+async function updateAvatar(avatarId, data) {
+  const avatar = await Avatar.findById(avatarId);
+  if (!avatar) {
+    throwError("Avatar không tồn tại", 404);
+  }
+
+  if (data.name !== undefined) avatar.name = data.name;
+  if (data.image_url !== undefined) avatar.image_url = data.image_url;
+  if (data.order !== undefined && Number.isFinite(Number(data.order))) {
+    avatar.order = Number(data.order);
+  }
+  if (data.is_active !== undefined) avatar.is_active = Boolean(data.is_active);
+
+  if (data.is_default !== undefined) {
+    const nextDefault = Boolean(data.is_default);
+    if (nextDefault) {
+      await Avatar.updateMany({ _id: { $ne: avatarId } }, { $set: { is_default: false } });
+    }
+    avatar.is_default = nextDefault;
+  }
+
+  await avatar.save();
+  return avatar;
+}
+
+/**
+ * Delete avatar by ID
+ */
+async function deleteAvatar(avatarId) {
+  const avatar = await Avatar.findById(avatarId);
+  if (!avatar) {
+    throwError("Avatar không tồn tại", 404);
+  }
+
+  await Avatar.findByIdAndDelete(avatarId);
+  return { message: "Đã xóa avatar" };
+}
+
 module.exports = {
   // User management
   getUsers,
@@ -353,4 +466,10 @@ module.exports = {
 
   // Skills
   getAllSkills,
+
+  // Avatar management
+  getAvatars,
+  createAvatar,
+  updateAvatar,
+  deleteAvatar,
 };
